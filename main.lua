@@ -223,7 +223,9 @@ local TargetPart = "Head"
 -- Proteções contra corpos/ragdolls fora do mapa
 local MAX_TARGET_DISTANCE = 500
 local MAX_VERTICAL_DISTANCE = 250
-local REQUIRE_LINE_OF_SIGHT = true
+
+-- false = pode mirar através de paredes
+local REQUIRE_LINE_OF_SIGHT = false
 
 local AimbotEnabled = false
 local Aiming = false
@@ -309,28 +311,27 @@ end
 
 local function IsTargetPositionValid(Character, Part)
     local MyCharacter = LocalPlayer.Character
+
     if not MyCharacter then
         return false
     end
 
     local MyRoot = MyCharacter:FindFirstChild("HumanoidRootPart")
+
     if not MyRoot or not Part then
         return false
     end
 
     local Difference = Part.Position - MyRoot.Position
 
-    -- Distância total
     if Difference.Magnitude > MAX_TARGET_DISTANCE then
         return false
     end
 
-    -- Evita corpos muito acima/abaixo do jogador
     if math.abs(Difference.Y) > MAX_VERTICAL_DISTANCE then
         return false
     end
 
-    -- Evita partes que estão muito abaixo do nível do mapa
     local TargetY = Part.Position.Y
     local MyY = MyRoot.Position.Y
 
@@ -367,18 +368,11 @@ local function HasLineOfSight(Character, Part)
         Params
     )
 
-    -- Nada bloqueando = visível
     if not Result then
         return true
     end
 
-    -- Se o primeiro objeto atingido já pertence ao alvo,
-    -- continua válido.
-    if Result.Instance:IsDescendantOf(Character) then
-        return true
-    end
-
-    return false
+    return Result.Instance:IsDescendantOf(Character)
 end
 
 local function IsAlive(Player)
@@ -646,8 +640,7 @@ RunService:BindToRenderStep(
         if TargetHumanoid.Health <= 0
             or TargetHumanoid:GetState() == Enum.HumanoidStateType.Dead
             or HasDeathMarker(Character, TargetHumanoid)
-            or not IsTargetPositionValid(Character, TargetPartInstance)
-            or not HasLineOfSight(Character, TargetPartInstance) then
+            or not IsTargetPositionValid(Character, TargetPartInstance) then
 
             StopAiming()
             return
