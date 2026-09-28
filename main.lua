@@ -146,6 +146,106 @@ local function GetClosestTarget()
     return Closest
 end
 
+local Section = Tab:CreateSection("AimBot aura") -- aimbot
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local FOV_RADIUS = 180
+local TargetPart = "Head"
+
+local InputBeganConnection
+local InputEndedConnection
+
+local Aiming = false
+local TargetPlayer = nil
+local TargetPartInstance = nil
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Radius = FOV_RADIUS
+FOVCircle.NumSides = 100
+FOVCircle.Thickness = 2
+FOVCircle.Filled = false
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Transparency = 1
+
+local function GetMousePosition()
+    return UserInputService:GetMouseLocation()
+end
+
+local function GetTargetPart(Character)
+    if not Character then
+        return nil
+    end
+
+    if TargetPart == "Head" then
+        return Character:FindFirstChild("Head")
+    end
+
+    return Character:FindFirstChild("UpperTorso")
+        or Character:FindFirstChild("Torso")
+end
+
+local function IsAlive(Player)
+    if not Player or Player == LocalPlayer then
+        return false
+    end
+
+    local Character = Player.Character
+    if not Character then
+        return false
+    end
+
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    local Part = GetTargetPart(Character)
+
+    if not Humanoid or Humanoid.Health <= 0 or not Part then
+        return false
+    end
+
+    return true
+end
+
+local function GetClosestTarget()
+    local MousePosition = GetMousePosition()
+
+    local ClosestPlayer = nil
+    local ClosestPart = nil
+    local ClosestDistance = FOV_RADIUS
+
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if IsAlive(Player) then
+            local Character = Player.Character
+            local Part = GetTargetPart(Character)
+
+            if Part then
+                local ScreenPosition, Visible =
+                    Camera:WorldToViewportPoint(Part.Position)
+
+                if Visible and ScreenPosition.Z > 0 then
+                    local Distance = (
+                        Vector2.new(ScreenPosition.X, ScreenPosition.Y)
+                        - MousePosition
+                    ).Magnitude
+
+                    if Distance <= ClosestDistance then
+                        ClosestDistance = Distance
+                        ClosestPlayer = Player
+                        ClosestPart = Part
+                    end
+                end
+            end
+        end
+    end
+
+    return ClosestPlayer, ClosestPart
+end
+
 local Section = Tab:CreateSection("AimBot aura")
 
 local Slider = Tab:CreateSlider({
@@ -162,17 +262,35 @@ local Slider = Tab:CreateSlider({
     end,
 })
 
+local Dropdown = Tab:CreateDropdown({
+    Name = "Parte da mira",
+    Options = {"Cabeça", "Tronco"},
+    CurrentOption = {"Cabeça"},
+    MultipleOptions = false,
+    Flag = "AimbotTargetPart",
+
+    Callback = function(Options)
+        local Selected = Options[1]
+
+        if Selected == "Cabeça" then
+            TargetPart = "Head"
+        elseif Selected == "Tronco" then
+            TargetPart = "UpperTorso"
+        end
+
+        -- Atualiza a parte do alvo atual imediatamente
+        if TargetPlayer and IsAlive(TargetPlayer) then
+            TargetPartInstance = GetTargetPart(TargetPlayer.Character)
+        end
+    end,
+})
+
 local Toggle = Tab:CreateToggle({
     Name = "Aim bot",
     CurrentValue = false,
     Flag = "Toggle2",
 
     Callback = function(Value)
-
-        if AimbotConnection then
-            AimbotConnection:Disconnect()
-            AimbotConnection = nil
-        end
 
         if InputBeganConnection then
             InputBeganConnection:Disconnect()
@@ -184,8 +302,12 @@ local Toggle = Tab:CreateToggle({
             InputEndedConnection = nil
         end
 
+        RunService:UnbindFromRenderStep("AimbotCamera")
+
         Aiming = false
-        Target = nil
+        TargetPlayer = nil
+        TargetPartInstance = nil
+
         FOVCircle.Visible = Value
 
         if not Value then
@@ -199,46 +321,52 @@ local Toggle = Tab:CreateToggle({
 
             if Input.UserInputType == Enum.UserInputType.MouseButton2 then
                 Aiming = true
-                Target = GetClosestTarget()
+
+                TargetPlayer, TargetPartInstance = GetClosestTarget()
             end
         end)
 
         InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
             if Input.UserInputType == Enum.UserInputType.MouseButton2 then
                 Aiming = false
-                Target = nil
+                TargetPlayer = nil
+                TargetPartInstance = nil
             end
         end)
 
-        AimbotConnection = RunService.RenderStepped:Connect(function()
-            FOVCircle.Position = GetMousePosition()
+        RunService:BindToRenderStep(
+            "AimbotCamera",
+            Enum.RenderPriority.Camera.Value + 1,
 
-            if not Aiming then
-                return
-            end
+            function()
+                FOVCircle.Position = GetMousePosition()
 
-            if not Target
-                or not Target.Parent
-                or not Target:IsDescendantOf(workspace) then
+                if not Aiming then
+                    return
+                end
 
-                Target = GetClosestTarget()
-            end
+                if not IsAlive(TargetPlayer) then
+                    Aiming = false
+                    TargetPlayer = nil
+                    TargetPartInstance = nil
+                    return
+                end
 
-            if Target then
-                local Character = Target.Parent
-                local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+                TargetPartInstance = GetTargetPart(TargetPlayer.Character)
 
-                if not Humanoid or Humanoid.Health <= 0 then
-                    Target = GetClosestTarget()
+                if not TargetPartInstance then
+                    Aiming = false
+                    TargetPlayer = nil
+                    TargetPartInstance = nil
                     return
                 end
 
                 Camera.CFrame = CFrame.lookAt(
                     Camera.CFrame.Position,
-                    Target.Position
+                    TargetPartInstance.Position
                 )
             end
-        end)
+        )
     end,
 })
 
