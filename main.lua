@@ -371,12 +371,15 @@ local Toggle = Tab:CreateToggle({
 })
 
 local Divider = Tab:CreateDivider() -- esp
-
+```lua
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
 local LocalPlayer = Players.LocalPlayer
 
 local ESPObjects = {}
 local ESPConnections = {}
+local DistanceConnection
 
 local function AddESP(Player)
     if Player == LocalPlayer then
@@ -388,6 +391,7 @@ local function AddESP(Player)
 
         if ESPObjects[Player] then
             ESPObjects[Player]:Destroy()
+            ESPObjects[Player] = nil
         end
 
         local Highlight = Instance.new("Highlight")
@@ -399,7 +403,38 @@ local function AddESP(Player)
         Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         Highlight.Parent = Character
 
-        ESPObjects[Player] = Highlight
+        local Head = Character:FindFirstChild("Head")
+            or Character:FindFirstChild("UpperTorso")
+            or Character:FindFirstChild("Torso")
+
+        if Head then
+            local Billboard = Instance.new("BillboardGui")
+            Billboard.Name = "DistanceESP"
+            Billboard.Adornee = Head
+            Billboard.Size = UDim2.fromOffset(120, 35)
+            Billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+            Billboard.AlwaysOnTop = true
+            Billboard.Parent = Head
+
+            local DistanceLabel = Instance.new("TextLabel")
+            DistanceLabel.Name = "Distance"
+            DistanceLabel.BackgroundTransparency = 1
+            DistanceLabel.Size = UDim2.fromScale(1, 1)
+            DistanceLabel.Font = Enum.Font.SourceSansBold
+            DistanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            DistanceLabel.TextStrokeTransparency = 0
+            DistanceLabel.TextScaled = true
+            DistanceLabel.Text = "0 studs"
+            DistanceLabel.Parent = Billboard
+
+            ESPObjects[Player] = Highlight
+
+            -- Guardamos os dois para remover depois
+            Highlight:SetAttribute("HasDistance", true)
+            Billboard.Parent = Head
+        else
+            ESPObjects[Player] = Highlight
+        end
     end
 
     if Player.Character then
@@ -416,15 +451,71 @@ local Toggle = Tab:CreateToggle({
 
     Callback = function(Value)
 
+        if DistanceConnection then
+            DistanceConnection:Disconnect()
+            DistanceConnection = nil
+        end
+
         if Value then
+
             for _, Player in ipairs(Players:GetPlayers()) do
                 AddESP(Player)
             end
+
+            DistanceConnection = RunService.RenderStepped:Connect(function()
+                local MyCharacter = LocalPlayer.Character
+                local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+
+                if not MyRoot then
+                    return
+                end
+
+                for Player, Highlight in pairs(ESPObjects) do
+                    if Player.Character and Highlight then
+                        local Character = Player.Character
+                        local Root = Character:FindFirstChild("HumanoidRootPart")
+                        local Head = Character:FindFirstChild("Head")
+                            or Character:FindFirstChild("UpperTorso")
+                            or Character:FindFirstChild("Torso")
+
+                        if Root and Head then
+                            local Distance = (MyRoot.Position - Root.Position).Magnitude
+
+                            local Billboard = Head:FindFirstChild("DistanceESP")
+
+                            if Billboard then
+                                local Label = Billboard:FindFirstChild("Distance")
+
+                                if Label then
+                                    Label.Text = string.format("%d studs", math.floor(Distance))
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+
         else
+
             for Player, Highlight in pairs(ESPObjects) do
                 if Highlight then
                     Highlight:Destroy()
                 end
+
+                if Player.Character then
+                    local Head = Player.Character:FindFirstChild("Head")
+                        or Player.Character:FindFirstChild("UpperTorso")
+                        or Player.Character:FindFirstChild("Torso")
+
+                    if Head then
+                        local Billboard = Head:FindFirstChild("DistanceESP")
+
+                        if Billboard then
+                            Billboard:Destroy()
+                        end
+                    end
+                end
+
                 ESPObjects[Player] = nil
             end
 
@@ -435,3 +526,4 @@ local Toggle = Tab:CreateToggle({
         end
     end,
 })
+```
