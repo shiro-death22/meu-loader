@@ -158,9 +158,7 @@ local Camera = workspace.CurrentCamera
 local FOV_RADIUS = 180
 local TargetPart = "Head"
 
-local InputBeganConnection
-local InputEndedConnection
-
+local AimbotEnabled = false
 local Aiming = false
 local TargetPlayer = nil
 local TargetPartInstance = nil
@@ -278,9 +276,33 @@ local Dropdown = Tab:CreateDropdown({
             TargetPart = "UpperTorso"
         end
 
-        -- Atualiza a parte do alvo atual imediatamente
         if TargetPlayer and IsAlive(TargetPlayer) then
             TargetPartInstance = GetTargetPart(TargetPlayer.Character)
+        end
+    end,
+})
+
+local Keybind = Tab:CreateKeybind({
+    Name = "Tecla do Aim Bot",
+    CurrentKeybind = "RightMouseButton",
+    HoldToInteract = true,
+    Flag = "AimbotKey",
+
+    Callback = function(Keybind)
+        if not AimbotEnabled then
+            Aiming = false
+            TargetPlayer = nil
+            TargetPartInstance = nil
+            return
+        end
+
+        Aiming = Keybind
+
+        if Keybind then
+            TargetPlayer, TargetPartInstance = GetClosestTarget()
+        else
+            TargetPlayer = nil
+            TargetPartInstance = nil
         end
     end,
 })
@@ -291,84 +313,50 @@ local Toggle = Tab:CreateToggle({
     Flag = "Toggle2",
 
     Callback = function(Value)
-
-        if InputBeganConnection then
-            InputBeganConnection:Disconnect()
-            InputBeganConnection = nil
-        end
-
-        if InputEndedConnection then
-            InputEndedConnection:Disconnect()
-            InputEndedConnection = nil
-        end
-
-        RunService:UnbindFromRenderStep("AimbotCamera")
-
-        Aiming = false
-        TargetPlayer = nil
-        TargetPartInstance = nil
-
-        FOVCircle.Visible = Value
+        AimbotEnabled = Value
 
         if not Value then
+            Aiming = false
+            TargetPlayer = nil
+            TargetPartInstance = nil
+        end
+
+        FOVCircle.Visible = Value
+    end,
+})
+
+RunService:BindToRenderStep(
+    "AimbotCamera",
+    Enum.RenderPriority.Camera.Value + 1,
+
+    function()
+        FOVCircle.Position = GetMousePosition()
+
+        if not AimbotEnabled or not Aiming then
             return
         end
 
-        InputBeganConnection = UserInputService.InputBegan:Connect(function(Input, GameProcessed)
-            if GameProcessed then
-                return
-            end
+        if not IsAlive(TargetPlayer) then
+            Aiming = false
+            TargetPlayer = nil
+            TargetPartInstance = nil
+            return
+        end
 
-            if Input.UserInputType == Enum.UserInputType.MouseButton2 then
-                Aiming = true
+        TargetPartInstance = GetTargetPart(TargetPlayer.Character)
 
-                TargetPlayer, TargetPartInstance = GetClosestTarget()
-            end
-        end)
+        if not TargetPartInstance then
+            Aiming = false
+            TargetPlayer = nil
+            TargetPartInstance = nil
+            return
+        end
 
-        InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
-            if Input.UserInputType == Enum.UserInputType.MouseButton2 then
-                Aiming = false
-                TargetPlayer = nil
-                TargetPartInstance = nil
-            end
-        end)
-
-        RunService:BindToRenderStep(
-            "AimbotCamera",
-            Enum.RenderPriority.Camera.Value + 1,
-
-            function()
-                FOVCircle.Position = GetMousePosition()
-
-                if not Aiming then
-                    return
-                end
-
-                if not IsAlive(TargetPlayer) then
-                    Aiming = false
-                    TargetPlayer = nil
-                    TargetPartInstance = nil
-                    return
-                end
-
-                TargetPartInstance = GetTargetPart(TargetPlayer.Character)
-
-                if not TargetPartInstance then
-                    Aiming = false
-                    TargetPlayer = nil
-                    TargetPartInstance = nil
-                    return
-                end
-
-                Camera.CFrame = CFrame.lookAt(
-                    Camera.CFrame.Position,
-                    TargetPartInstance.Position
-                )
-            end
+        Camera.CFrame = CFrame.lookAt(
+            Camera.CFrame.Position,
+            TargetPartInstance.Position
         )
-    end,
-})
+    end
 
 local Divider = Tab:CreateDivider() -- esp
 
