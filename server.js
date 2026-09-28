@@ -78,3 +78,13 @@ app.get("/script", (req, res) => {
 app.listen(PORT, () => {
     console.log(`API rodando em http://localhost:${PORT}`);
 });
+
+app.get("/api/shadow", (req, res) => {
+    const loader = fs.readFileSync("./loader.lua", "utf8");
+
+    res.type("text/plain").send(loader);
+});
+
+app.get("/", (req, res) => {
+    res.send("API online");
+});
