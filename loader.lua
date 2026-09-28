@@ -5,8 +5,8 @@ local Rayfield = loadstring(
 )()
 
 local Window = Rayfield:CreateWindow({
-    Name = "Meu Hub - Key System",
-    LoadingTitle = "Meu Hub",
+    Name = "AuraHub - Key System",
+    LoadingTitle = "AuraHub",
     LoadingSubtitle = "Validação de Key",
     ConfigurationSaving = {
         Enabled = false

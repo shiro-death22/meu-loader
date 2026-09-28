@@ -7,7 +7,7 @@ const PORT = 3000;
 
 // KEYS DE TESTE
 const keys = new Map([
-    ["Viniarrombado", Date.now() + 24 * 60 * 60 * 1000]
+    ["Vinimolestado", Date.now() + 24 * 60 * 60 * 1000]
 ]);
 
 const tokens = new Map();

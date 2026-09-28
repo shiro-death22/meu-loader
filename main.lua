@@ -41,6 +41,8 @@ local Window = Rayfield:CreateWindow({
 
 local Tab = Window:CreateTab("original", 4483362458) -- Title, Image
 
+local Section = Tab:CreateSection("movimentacao") -- movimentacao
+
 local JumpConnection
 
 local Toggle = Tab:CreateToggle({
@@ -70,6 +72,66 @@ local Toggle = Tab:CreateToggle({
                 end
             end)
         end
+    end,
+})
+
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+
+local WalkSpeed = 16
+local SpeedEnabled = false
+
+local function ApplySpeed()
+    local Character = LocalPlayer.Character
+    if not Character then
+        return
+    end
+
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Humanoid then
+        return
+    end
+
+    if SpeedEnabled then
+        Humanoid.WalkSpeed = WalkSpeed
+    else
+        Humanoid.WalkSpeed = 16
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.2)
+    ApplySpeed()
+end)
+
+local Section = Tab:CreateSection("Movement")
+
+local Slider = Tab:CreateSlider({
+    Name = "Velocidade",
+    Range = {16, 200},
+    Increment = 1,
+    Suffix = " Speed",
+    CurrentValue = WalkSpeed,
+    Flag = "WalkSpeedValue",
+
+    Callback = function(Value)
+        WalkSpeed = Value
+
+        if SpeedEnabled then
+            ApplySpeed()
+        end
+    end,
+})
+
+local Toggle = Tab:CreateToggle({
+    Name = "Speed",
+    CurrentValue = false,
+    Flag = "WalkSpeedToggle",
+
+    Callback = function(Value)
+        SpeedEnabled = Value
+        ApplySpeed()
     end,
 })
 
@@ -160,8 +222,14 @@ local TargetPart = "Head"
 
 local AimbotEnabled = false
 local Aiming = false
+
+local MouseAiming = false
+local KeyboardAiming = false
+
 local TargetPlayer = nil
 local TargetPartInstance = nil
+local TargetHumanoid = nil
+local TargetDiedConnection = nil
 
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Visible = false
@@ -174,6 +242,30 @@ FOVCircle.Transparency = 1
 
 local function GetMousePosition()
     return UserInputService:GetMouseLocation()
+end
+
+local function UpdateAimingState()
+    Aiming = MouseAiming or KeyboardAiming
+end
+
+local function DisconnectTargetDeath()
+    if TargetDiedConnection then
+        TargetDiedConnection:Disconnect()
+        TargetDiedConnection = nil
+    end
+end
+
+local function ClearTarget()
+    DisconnectTargetDeath()
+
+    TargetPlayer = nil
+    TargetPartInstance = nil
+    TargetHumanoid = nil
+end
+
+local function StopAiming()
+    Aiming = false
+    ClearTarget()
 end
 
 local function GetTargetPart(Character)
@@ -189,24 +281,124 @@ local function GetTargetPart(Character)
         or Character:FindFirstChild("Torso")
 end
 
+local function HasDeathMarker(Character, Humanoid)
+    -- Atributos comuns usados por sistemas próprios de morte/ragdoll
+    if Character:GetAttribute("Dead") == true then
+        return true
+    end
+
+    if Character:GetAttribute("IsDead") == true then
+        return true
+    end
+
+    if Character:GetAttribute("Died") == true then
+        return true
+    end
+
+    if Humanoid:GetAttribute("Dead") == true then
+        return true
+    end
+
+    if Humanoid:GetAttribute("IsDead") == true then
+        return true
+    end
+
+    -- Nomes comuns de objetos usados como marcador de ragdoll/morte
+    if Character:FindFirstChild("Ragdoll") then
+        return true
+    end
+
+    if Character:FindFirstChild("Dead") then
+        return true
+    end
+
+    return false
+end
+
 local function IsAlive(Player)
     if not Player or Player == LocalPlayer then
         return false
     end
 
     local Character = Player.Character
+
     if not Character then
         return false
     end
 
+    if Character.Parent ~= workspace then
+        return false
+    end
+
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
     local Part = GetTargetPart(Character)
 
-    if not Humanoid or Humanoid.Health <= 0 or not Part then
+    if not Humanoid or not RootPart or not Part then
+        return false
+    end
+
+    -- Vida
+    if Humanoid.Health <= 0 then
+        return false
+    end
+
+    -- Estado de morte/ragdoll
+    local State = Humanoid:GetState()
+
+    if State == Enum.HumanoidStateType.Dead then
+        return false
+    end
+
+    if State == Enum.HumanoidStateType.Ragdoll then
+        return false
+    end
+
+    if State == Enum.HumanoidStateType.Physics then
+        return false
+    end
+
+    if State == Enum.HumanoidStateType.FallingDown then
+        return false
+    end
+
+    -- Ragdoll via PlatformStand
+    if Humanoid.PlatformStand then
+        return false
+    end
+
+    -- Marcadores usados pelo jogo
+    if HasDeathMarker(Character, Humanoid) then
         return false
     end
 
     return true
+end
+
+local function SetTarget(Player, Part)
+    ClearTarget()
+
+    if not Player or not Part then
+        return
+    end
+
+    if not IsAlive(Player) then
+        return
+    end
+
+    TargetPlayer = Player
+    TargetPartInstance = Part
+
+    if Player.Character then
+        TargetHumanoid =
+            Player.Character:FindFirstChildOfClass("Humanoid")
+    end
+
+    if TargetHumanoid then
+        TargetDiedConnection = TargetHumanoid.Died:Connect(function()
+            StopAiming()
+        end)
+    end
 end
 
 local function GetClosestTarget()
@@ -244,8 +436,6 @@ local function GetClosestTarget()
     return ClosestPlayer, ClosestPart
 end
 
-local Section = Tab:CreateSection("AimBot aura")
-
 local Slider = Tab:CreateSlider({
     Name = "FOV",
     Range = {50, 500},
@@ -277,32 +467,41 @@ local Dropdown = Tab:CreateDropdown({
         end
 
         if TargetPlayer and IsAlive(TargetPlayer) then
-            TargetPartInstance = GetTargetPart(TargetPlayer.Character)
+            TargetPartInstance =
+                GetTargetPart(TargetPlayer.Character)
+        else
+            ClearTarget()
         end
     end,
 })
 
 local Keybind = Tab:CreateKeybind({
     Name = "Tecla do Aim Bot",
-    CurrentKeybind = "RightMouseButton",
+    CurrentKeybind = "Q",
     HoldToInteract = true,
     Flag = "AimbotKey",
 
-    Callback = function(Keybind)
+    Callback = function(Value)
         if not AimbotEnabled then
-            Aiming = false
-            TargetPlayer = nil
-            TargetPartInstance = nil
+            KeyboardAiming = false
+            MouseAiming = false
+            StopAiming()
             return
         end
 
-        Aiming = Keybind
+        KeyboardAiming = Value
+        UpdateAimingState()
 
-        if Keybind then
-            TargetPlayer, TargetPartInstance = GetClosestTarget()
-        else
-            TargetPlayer = nil
-            TargetPartInstance = nil
+        if Value then
+            local Player, Part = GetClosestTarget()
+
+            if Player and Part then
+                SetTarget(Player, Part)
+            else
+                ClearTarget()
+            end
+        elseif not MouseAiming then
+            StopAiming()
         end
     end,
 })
@@ -316,14 +515,45 @@ local Toggle = Tab:CreateToggle({
         AimbotEnabled = Value
 
         if not Value then
-            Aiming = false
-            TargetPlayer = nil
-            TargetPartInstance = nil
+            MouseAiming = false
+            KeyboardAiming = false
+            StopAiming()
         end
 
         FOVCircle.Visible = Value
     end,
 })
+
+-- RMB
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+    if GameProcessed or not AimbotEnabled then
+        return
+    end
+
+    if Input.UserInputType == Enum.UserInputType.MouseButton2 then
+        MouseAiming = true
+        UpdateAimingState()
+
+        local Player, Part = GetClosestTarget()
+
+        if Player and Part then
+            SetTarget(Player, Part)
+        else
+            ClearTarget()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton2 then
+        MouseAiming = false
+        UpdateAimingState()
+
+        if not KeyboardAiming then
+            StopAiming()
+        end
+    end
+end)
 
 RunService:BindToRenderStep(
     "AimbotCamera",
@@ -336,19 +566,45 @@ RunService:BindToRenderStep(
             return
         end
 
+        -- NÃO troca automaticamente para outro alvo.
+        -- Se o atual morrer/virar ragdoll, simplesmente para.
         if not IsAlive(TargetPlayer) then
-            Aiming = false
-            TargetPlayer = nil
-            TargetPartInstance = nil
+            StopAiming()
             return
         end
 
-        TargetPartInstance = GetTargetPart(TargetPlayer.Character)
+        local Character = TargetPlayer.Character
+
+        if not Character then
+            StopAiming()
+            return
+        end
+
+        TargetPartInstance = GetTargetPart(Character)
 
         if not TargetPartInstance then
-            Aiming = false
-            TargetPlayer = nil
-            TargetPartInstance = nil
+            StopAiming()
+            return
+        end
+
+        TargetHumanoid =
+            Character:FindFirstChildOfClass("Humanoid")
+
+        if not TargetHumanoid then
+            StopAiming()
+            return
+        end
+
+        local State = TargetHumanoid:GetState()
+
+        if TargetHumanoid.Health <= 0
+            or State == Enum.HumanoidStateType.Dead
+            or State == Enum.HumanoidStateType.Ragdoll
+            or State == Enum.HumanoidStateType.Physics
+            or TargetHumanoid.PlatformStand
+            or HasDeathMarker(Character, TargetHumanoid) then
+
+            StopAiming()
             return
         end
 
@@ -361,28 +617,65 @@ RunService:BindToRenderStep(
 
 local Divider = Tab:CreateDivider() -- esp
 
+local Section = Tab:CreateSection("Esp")
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
+local ESPEnabled = false
+local ShowName = true
+local ShowDistance = true
+
 local ESPObjects = {}
 local ESPConnections = {}
 local DistanceConnection
+
+local function GetBodyPart(Character)
+    return Character:FindFirstChild("Head")
+        or Character:FindFirstChild("UpperTorso")
+        or Character:FindFirstChild("Torso")
+end
+
+local function RemoveESP(Player)
+    if ESPObjects[Player] then
+        local Data = ESPObjects[Player]
+
+        if Data.Highlight then
+            Data.Highlight:Destroy()
+        end
+
+        if Data.Billboard then
+            Data.Billboard:Destroy()
+        end
+
+        ESPObjects[Player] = nil
+    end
+
+    if ESPConnections[Player] then
+        ESPConnections[Player]:Disconnect()
+        ESPConnections[Player] = nil
+    end
+end
 
 local function AddESP(Player)
     if Player == LocalPlayer then
         return
     end
 
-    local function Apply(Character)
-        if not Character then return end
+    if not ESPEnabled then
+        return
+    end
 
-        if ESPObjects[Player] then
-            ESPObjects[Player]:Destroy()
-            ESPObjects[Player] = nil
+    local function Apply(Character)
+        if not Character or not ESPEnabled then
+            return
         end
 
+        RemoveESP(Player)
+
+        -- Highlight
         local Highlight = Instance.new("Highlight")
         Highlight.Name = "EnemyESP"
         Highlight.Adornee = Character
@@ -392,53 +685,83 @@ local function AddESP(Player)
         Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         Highlight.Parent = Character
 
-        local Head = Character:FindFirstChild("Head")
-            or Character:FindFirstChild("UpperTorso")
-            or Character:FindFirstChild("Torso")
+        -- Parte onde o texto ficará
+        local BodyPart = GetBodyPart(Character)
 
-        if Head then
-            local Billboard = Instance.new("BillboardGui")
-            Billboard.Name = "DistanceESP"
-            Billboard.Adornee = Head
-            Billboard.Size = UDim2.fromOffset(120, 35)
-            Billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        local Billboard
+        local NameLabel
+        local DistanceLabel
+
+        if BodyPart then
+            Billboard = Instance.new("BillboardGui")
+            Billboard.Name = "ESPInfo"
+            Billboard.Adornee = BodyPart
+            Billboard.Size = UDim2.fromOffset(180, 50)
+            Billboard.StudsOffset = Vector3.new(0, 3, 0)
             Billboard.AlwaysOnTop = true
-            Billboard.Parent = Head
+            Billboard.Parent = BodyPart
 
-            local DistanceLabel = Instance.new("TextLabel")
+            -- Nome
+            NameLabel = Instance.new("TextLabel")
+            NameLabel.Name = "PlayerName"
+            NameLabel.BackgroundTransparency = 1
+            NameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            NameLabel.Position = UDim2.fromScale(0, 0)
+            NameLabel.Font = Enum.Font.SourceSansBold
+            NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            NameLabel.TextStrokeTransparency = 0
+            NameLabel.TextScaled = true
+            NameLabel.Text = Player.Name
+            NameLabel.Visible = ShowName
+            NameLabel.Parent = Billboard
+
+            -- Distância
+            DistanceLabel = Instance.new("TextLabel")
             DistanceLabel.Name = "Distance"
             DistanceLabel.BackgroundTransparency = 1
-            DistanceLabel.Size = UDim2.fromScale(1, 1)
+            DistanceLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            DistanceLabel.Position = UDim2.fromScale(0, 0.5)
             DistanceLabel.Font = Enum.Font.SourceSansBold
             DistanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
             DistanceLabel.TextStrokeTransparency = 0
             DistanceLabel.TextScaled = true
             DistanceLabel.Text = "0 studs"
+            DistanceLabel.Visible = ShowDistance
             DistanceLabel.Parent = Billboard
-
-            ESPObjects[Player] = Highlight
-
-            -- Guardamos os dois para remover depois
-            Highlight:SetAttribute("HasDistance", true)
-            Billboard.Parent = Head
-        else
-            ESPObjects[Player] = Highlight
         end
+
+        ESPObjects[Player] = {
+            Highlight = Highlight,
+            Billboard = Billboard,
+            NameLabel = NameLabel,
+            DistanceLabel = DistanceLabel
+        }
     end
 
     if Player.Character then
         Apply(Player.Character)
     end
 
-    ESPConnections[Player] = Player.CharacterAdded:Connect(Apply)
+    ESPConnections[Player] = Player.CharacterAdded:Connect(function(Character)
+        task.wait(0.1)
+
+        if ESPEnabled then
+            Apply(Character)
+        end
+    end)
 end
 
+-- ========================================
+-- ESP
+-- ========================================
+
 local Toggle = Tab:CreateToggle({
-    Name = "Esp",
+    Name = "ESP",
     CurrentValue = false,
     Flag = "Toggle3",
 
     Callback = function(Value)
+        ESPEnabled = Value
 
         if DistanceConnection then
             DistanceConnection:Disconnect()
@@ -446,38 +769,55 @@ local Toggle = Tab:CreateToggle({
         end
 
         if Value then
-
+            -- Adiciona ESP em todos os jogadores existentes
             for _, Player in ipairs(Players:GetPlayers()) do
-                AddESP(Player)
+                if Player ~= LocalPlayer then
+                    AddESP(Player)
+                end
             end
 
+            -- Atualiza distância
             DistanceConnection = RunService.RenderStepped:Connect(function()
+                if not ESPEnabled then
+                    return
+                end
+
                 local MyCharacter = LocalPlayer.Character
-                local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+                local MyRoot = MyCharacter
+                    and MyCharacter:FindFirstChild("HumanoidRootPart")
 
                 if not MyRoot then
                     return
                 end
 
-                for Player, Highlight in pairs(ESPObjects) do
-                    if Player.Character and Highlight then
+                for Player, Data in pairs(ESPObjects) do
+                    if Player.Character and Data then
                         local Character = Player.Character
-                        local Root = Character:FindFirstChild("HumanoidRootPart")
-                        local Head = Character:FindFirstChild("Head")
-                            or Character:FindFirstChild("UpperTorso")
-                            or Character:FindFirstChild("Torso")
 
-                        if Root and Head then
-                            local Distance = (MyRoot.Position - Root.Position).Magnitude
+                        local Root =
+                            Character:FindFirstChild("HumanoidRootPart")
 
-                            local Billboard = Head:FindFirstChild("DistanceESP")
+                        local BodyPart =
+                            GetBodyPart(Character)
 
-                            if Billboard then
-                                local Label = Billboard:FindFirstChild("Distance")
+                        if Root and BodyPart then
+                            local Distance =
+                                (MyRoot.Position - Root.Position).Magnitude
 
-                                if Label then
-                                    Label.Text = string.format("%d studs", math.floor(Distance))
-                                end
+                            if Data.DistanceLabel then
+                                Data.DistanceLabel.Text =
+                                    string.format(
+                                        "%d studs",
+                                        math.floor(Distance)
+                                    )
+
+                                Data.DistanceLabel.Visible =
+                                    ShowDistance
+                            end
+
+                            if Data.NameLabel then
+                                Data.NameLabel.Visible =
+                                    ShowName
                             end
                         end
                     end
@@ -485,34 +825,66 @@ local Toggle = Tab:CreateToggle({
             end)
 
         else
-
-            for Player, Highlight in pairs(ESPObjects) do
-                if Highlight then
-                    Highlight:Destroy()
+            -- Remove todos os ESPs
+            for _, Player in ipairs(Players:GetPlayers()) do
+                if Player ~= LocalPlayer then
+                    RemoveESP(Player)
                 end
-
-                if Player.Character then
-                    local Head = Player.Character:FindFirstChild("Head")
-                        or Player.Character:FindFirstChild("UpperTorso")
-                        or Player.Character:FindFirstChild("Torso")
-
-                    if Head then
-                        local Billboard = Head:FindFirstChild("DistanceESP")
-
-                        if Billboard then
-                            Billboard:Destroy()
-                        end
-                    end
-                end
-
-                ESPObjects[Player] = nil
-            end
-
-            for Player, Connection in pairs(ESPConnections) do
-                Connection:Disconnect()
-                ESPConnections[Player] = nil
             end
         end
     end,
 })
 
+-- ========================================
+-- MOSTRAR NOME
+-- ========================================
+
+local NameToggle = Tab:CreateToggle({
+    Name = "Mostrar nome",
+    CurrentValue = true,
+    Flag = "ESPShowName",
+
+    Callback = function(Value)
+        ShowName = Value
+
+        for _, Data in pairs(ESPObjects) do
+            if Data.NameLabel then
+                Data.NameLabel.Visible = Value
+            end
+        end
+    end,
+})
+
+-- ========================================
+-- MOSTRAR DISTÂNCIA
+-- ========================================
+
+local DistanceToggle = Tab:CreateToggle({
+    Name = "Mostrar distância",
+    CurrentValue = true,
+    Flag = "ESPShowDistance",
+
+    Callback = function(Value)
+        ShowDistance = Value
+
+        for _, Data in pairs(ESPObjects) do
+            if Data.DistanceLabel then
+                Data.DistanceLabel.Visible = Value
+            end
+        end
+    end,
+})
+
+-- ========================================
+-- NOVOS JOGADORES
+-- ========================================
+
+Players.PlayerAdded:Connect(function(Player)
+    if ESPEnabled then
+        AddESP(Player)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(Player)
+    RemoveESP(Player)
+end)
