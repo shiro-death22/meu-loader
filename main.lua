@@ -220,6 +220,11 @@ local Camera = workspace.CurrentCamera
 local FOV_RADIUS = 180
 local TargetPart = "Head"
 
+-- Proteções contra corpos/ragdolls fora do mapa
+local MAX_TARGET_DISTANCE = 500
+local MAX_VERTICAL_DISTANCE = 250
+local REQUIRE_LINE_OF_SIGHT = true
+
 local AimbotEnabled = false
 local Aiming = false
 
@@ -279,36 +284,97 @@ local function GetTargetPart(Character)
 
     return Character:FindFirstChild("UpperTorso")
         or Character:FindFirstChild("Torso")
+        or Character:FindFirstChild("HumanoidRootPart")
 end
 
 local function HasDeathMarker(Character, Humanoid)
-    -- Atributos comuns usados por sistemas próprios de morte/ragdoll
-    if Character:GetAttribute("Dead") == true then
+    if Character:GetAttribute("Dead") == true
+        or Character:GetAttribute("IsDead") == true
+        or Character:GetAttribute("Died") == true then
         return true
     end
 
-    if Character:GetAttribute("IsDead") == true then
+    if Humanoid:GetAttribute("Dead") == true
+        or Humanoid:GetAttribute("IsDead") == true then
         return true
     end
 
-    if Character:GetAttribute("Died") == true then
+    if Character:FindFirstChild("Dead")
+        or Character:FindFirstChild("Ragdoll") then
         return true
     end
 
-    if Humanoid:GetAttribute("Dead") == true then
+    return false
+end
+
+local function IsTargetPositionValid(Character, Part)
+    local MyCharacter = LocalPlayer.Character
+    if not MyCharacter then
+        return false
+    end
+
+    local MyRoot = MyCharacter:FindFirstChild("HumanoidRootPart")
+    if not MyRoot or not Part then
+        return false
+    end
+
+    local Difference = Part.Position - MyRoot.Position
+
+    -- Distância total
+    if Difference.Magnitude > MAX_TARGET_DISTANCE then
+        return false
+    end
+
+    -- Evita corpos muito acima/abaixo do jogador
+    if math.abs(Difference.Y) > MAX_VERTICAL_DISTANCE then
+        return false
+    end
+
+    -- Evita partes que estão muito abaixo do nível do mapa
+    local TargetY = Part.Position.Y
+    local MyY = MyRoot.Position.Y
+
+    if TargetY < MyY - MAX_VERTICAL_DISTANCE then
+        return false
+    end
+
+    return true
+end
+
+local function HasLineOfSight(Character, Part)
+    if not REQUIRE_LINE_OF_SIGHT then
         return true
     end
 
-    if Humanoid:GetAttribute("IsDead") == true then
+    if not Part then
+        return false
+    end
+
+    local Origin = Camera.CFrame.Position
+    local Direction = Part.Position - Origin
+
+    local Params = RaycastParams.new()
+    Params.FilterType = Enum.RaycastFilterType.Exclude
+    Params.FilterDescendantsInstances = {
+        LocalPlayer.Character,
+        Character
+    }
+    Params.IgnoreWater = true
+
+    local Result = workspace:Raycast(
+        Origin,
+        Direction,
+        Params
+    )
+
+    -- Nada bloqueando = visível
+    if not Result then
         return true
     end
 
-    -- Nomes comuns de objetos usados como marcador de ragdoll/morte
-    if Character:FindFirstChild("Ragdoll") then
-        return true
-    end
-
-    if Character:FindFirstChild("Dead") then
+    -- Se o primeiro objeto atingido já pertence ao alvo,
+    -- continua válido.
+    if Result.Instance:IsDescendantOf(Character) then
         return true
     end
 
@@ -331,44 +397,29 @@ local function IsAlive(Player)
     end
 
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    local RootPart = Character:FindFirstChild("HumanoidRootPart")
     local Part = GetTargetPart(Character)
 
-    if not Humanoid or not RootPart or not Part then
+    if not Humanoid or not Part then
         return false
     end
 
-    -- Vida
     if Humanoid.Health <= 0 then
         return false
     end
 
-    -- Estado de morte/ragdoll
-    local State = Humanoid:GetState()
-
-    if State == Enum.HumanoidStateType.Dead then
+    if Humanoid:GetState() == Enum.HumanoidStateType.Dead then
         return false
     end
 
-    if State == Enum.HumanoidStateType.Ragdoll then
-        return false
-    end
-
-    if State == Enum.HumanoidStateType.Physics then
-        return false
-    end
-
-    if State == Enum.HumanoidStateType.FallingDown then
-        return false
-    end
-
-    -- Ragdoll via PlatformStand
-    if Humanoid.PlatformStand then
-        return false
-    end
-
-    -- Marcadores usados pelo jogo
     if HasDeathMarker(Character, Humanoid) then
+        return false
+    end
+
+    if not IsTargetPositionValid(Character, Part) then
+        return false
+    end
+
+    if not HasLineOfSight(Character, Part) then
         return false
     end
 
@@ -524,7 +575,6 @@ local Toggle = Tab:CreateToggle({
     end,
 })
 
--- RMB
 UserInputService.InputBegan:Connect(function(Input, GameProcessed)
     if GameProcessed or not AimbotEnabled then
         return
@@ -566,8 +616,6 @@ RunService:BindToRenderStep(
             return
         end
 
-        -- NÃO troca automaticamente para outro alvo.
-        -- Se o atual morrer/virar ragdoll, simplesmente para.
         if not IsAlive(TargetPlayer) then
             StopAiming()
             return
@@ -595,14 +643,11 @@ RunService:BindToRenderStep(
             return
         end
 
-        local State = TargetHumanoid:GetState()
-
         if TargetHumanoid.Health <= 0
-            or State == Enum.HumanoidStateType.Dead
-            or State == Enum.HumanoidStateType.Ragdoll
-            or State == Enum.HumanoidStateType.Physics
-            or TargetHumanoid.PlatformStand
-            or HasDeathMarker(Character, TargetHumanoid) then
+            or TargetHumanoid:GetState() == Enum.HumanoidStateType.Dead
+            or HasDeathMarker(Character, TargetHumanoid)
+            or not IsTargetPositionValid(Character, TargetPartInstance)
+            or not HasLineOfSight(Character, TargetPartInstance) then
 
             StopAiming()
             return
