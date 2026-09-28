@@ -27,7 +27,7 @@ local Window = Rayfield:CreateWindow({
       RememberJoins = true -- Set this to false to make them join the Discord every time they load it up
    },
 
-   KeySystem = true, -- Set this to true to use our key system
+   KeySystem = false, -- Set this to true to use our key system
    KeySettings = {
       Title = "Coloque a chave!",
       Subtitle = "sistema de chave",
@@ -357,6 +357,7 @@ RunService:BindToRenderStep(
             TargetPartInstance.Position
         )
     end
+)
 
 local Divider = Tab:CreateDivider() -- esp
 
