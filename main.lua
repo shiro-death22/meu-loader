@@ -371,7 +371,7 @@ local Toggle = Tab:CreateToggle({
 })
 
 local Divider = Tab:CreateDivider() -- esp
-```lua
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -526,4 +526,4 @@ local Toggle = Tab:CreateToggle({
         end
     end,
 })
-```
+
